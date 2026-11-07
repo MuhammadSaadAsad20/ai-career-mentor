@@ -1,110 +1,69 @@
 # AI Career Mentor
 
-A mock-interview engine that generates role-appropriate questions with an LLM,
-then scores each spoken-or-typed answer against a fixed rubric and returns
-structured, specific feedback — not a paragraph of encouragement.
+[![CI](https://github.com/MuhammadSaadAsad20/ai-career-mentor/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadSaadAsad20/ai-career-mentor/actions/workflows/ci.yml)
 
-The scoring is the point. Every evaluation comes back as a validated Pydantic
-model with four numeric sub-scores, a list of strengths, a list of concrete
-improvements, and a rewritten model answer. Nothing is parsed out of prose.
+**Status: under construction.** The text interview loop works today. Speech and resume features
+are planned and not built.
 
-## What it does
+A mock-interview engine. It generates role-appropriate questions with an LLM, scores each typed
+answer against a fixed rubric, and returns structured feedback.
 
-1. Takes a candidate's name, target role, and years of experience.
-2. Maps experience to a level (Beginner / Intermediate / Advanced) and a question
-   difficulty (Basic / Medium / Hard).
-3. Asks the LLM for five interview questions calibrated to that role and level.
-4. For each answer, returns a structured evaluation:
+## What works today
 
-   | Field | Type | Meaning |
-   |---|---|---|
-   | `score` | 0–10 | Overall |
-   | `technical_correctness` | 0–10 | Is the content right |
-   | `relevance` | 0–10 | Does it answer the question asked |
-   | `completeness` | 0–10 | Did it cover what it should |
-   | `strengths` | list | What the candidate did well |
-   | `improvements` | list | Specific, actionable fixes |
-   | `better_answer` | string | A model answer to compare against |
+- Maps years of experience to a level and question difficulty.
+- Generates five questions for the role and level.
+- In the CLI, scores each answer and returns a validated `AnswerEvaluation`:
 
-5. Persists the interview, its questions, and every answer with its scores to
-   SQLite, so sessions can be reviewed later.
-
-## Two front ends
-
-- **`main.py`** — an interactive CLI. Runs a full interview in the terminal.
-- **`app.py`** — a FastAPI service over the same engine.
-
-  | Method | Route | Purpose |
+  | Field | Type | Meaning |
   |---|---|---|
-  | `GET` | `/health` | Liveness check |
-  | `GET` | `/interviews` | List past interviews, newest first |
-  | `GET` | `/interviews/{id}` | One interview with its questions |
-  | `POST` | `/interviews` | Start an interview and generate questions |
+  | `score` | 0 to 10 | Overall score |
+  | `technical_correctness` | 0 to 10 | Is the content right |
+  | `relevance` | 0 to 10 | Does it answer the question asked |
+  | `completeness` | 0 to 10 | Did it cover what it should |
+  | `strengths` | list | What the candidate did well |
+  | `improvements` | list | Specific fixes |
+  | `better_answer` | string | A model answer to compare against |
+
+- Saves interviews, questions and scored answers to SQLite.
+
+## Two entry points
+
+- **`main.py`:** the interactive CLI, and the only path that scores answers today.
+- **`app.py`:** a FastAPI service that creates interviews, generates questions and reads saved
+  interviews. It does not score answers yet.
 
 ## Design notes
 
-**Structured output over prose parsing.** `generate_interview_questions` and
-`evaluate_answer` both bind the LLM response to a Pydantic schema. A malformed
-or hallucinated shape fails validation at the boundary instead of silently
-producing a half-parsed score downstream.
+Question generation and evaluation both bind the model's response to a Pydantic schema, so a
+malformed response fails at the boundary. Score fields are bounded with `Field(ge=0, le=10)`, and
+API input is validated before any LLM call is made.
 
-**Bounded fields.** `score` and the three sub-scores are `Field(ge=0, le=10)`;
-request input is bounded too (`experience` is `ge=0, le=50`). The model cannot
-hand back an 11 or a negative year count.
+## Run it
 
-**The rubric lives in the schema, not the prompt.** Adding a scoring dimension
-means adding a field, which forces the model to produce it.
-
-## Running it
-
-Requires Python 3.11+ and an OpenAI API key.
+Requires Python 3.11 or newer and an OpenAI API key.
 
 ```bash
 python -m venv venv
-venv\Scripts\activate        # Windows
-pip install fastapi uvicorn openai sqlalchemy pydantic python-dotenv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
 ```
 
-Put your key in `.env`:
+Add your key to `.env`, then run `python main.py` or `uvicorn app:app --reload`.
 
-```
-OPENAI_API_KEY=sk-your-key-here
-```
-
-CLI:
+## Tests
 
 ```bash
-python main.py
+pip install pytest httpx
+python -m pytest tests -q
 ```
 
-API:
+The tests cover level mapping, rubric validation and API input validation, with no API key or
+network calls. CI runs them on every push.
 
-```bash
-uvicorn app:app --reload
-```
+## Roadmap
 
-Then open <http://127.0.0.1:8000/docs>.
-
-## Current limits
-
-Stated plainly, because they are the roadmap:
-
-- **Text answers only.** There is no speech input, no transcription, and no
-  delivery analysis (pace, pauses, filler words) yet.
-- **Questions key off role and experience only.** Resume and job-description
-  tailoring is not implemented.
-- **No scoring endpoint on the API.** Answer evaluation currently runs through
-  the CLI path; `POST /interviews` generates questions but does not yet accept
-  and score answers.
-- **Single user, single machine.** SQLite, no accounts, no auth.
-
-## Where it goes next
-
-In order of value:
-
-1. Expose answer scoring over the API so the CLI and service are at parity.
-2. Whisper transcription for spoken answers, then delivery metrics derived from
-   the transcript and its timings — speaking pace, pause length, filler-word rate.
-3. Resume and job-description parsing, so questions target the actual gap
-   between a candidate and a specific posting.
-4. A session report that trends scores across repeated interviews.
+1. Expose answer scoring through the API.
+2. Whisper transcription for spoken answers, then delivery metrics such as pace and filler words.
+3. Resume and job-description tailoring.
+4. A report that tracks scores across interviews.
